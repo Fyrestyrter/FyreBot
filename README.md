@@ -23,5 +23,7 @@
     }
 ```
 ## Example
-
+### >meme
+Input: >meme
+Output: 
 
