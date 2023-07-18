@@ -2,6 +2,7 @@ import json
 import random
 import discord
 import os
+import youtube_dl
 from discord.ext import commands
 from dotenv import load_dotenv
 from dateutil import tz
@@ -21,9 +22,11 @@ info_words = ["как сделать", "куда обратиться", "пом�
 bye_words = ["пока", "досвидания", "bye"]
 
 REACTION_ROLE_MAP = {
-    '👎': 'Роль 1',  # Замените '👎' на нужную реакцию и 'Роль1' на нужное имя роли
-    '👍': 'Роль 2',  # Замените '👍' на нужную реакцию и 'Роль2' на нужное имя роли
+    '👎': 'Пахан',  # Замените '👎' на нужную реакцию и 'Роль1' на нужное имя роли
+    '👍': 'Алкашня',  # Замените '👍' на нужную реакцию и 'Роль2' на нужное имя роли
 }
+
+user_timezone = tz.tzlocal()
 
 
 @bot.event
@@ -33,10 +36,10 @@ async def on_ready():
 
 @bot.event
 async def on_member_join(member):
-    user_timezone = tz.tzlocal()
     # Создаем словарь с информацией о новом пользователе
     user_info = {
-        'username': member.display_name,
+        'username': member.name,
+        'display_name': member.display_name,
         'id': member.id,
         'joined_at': member.joined_at.astimezone(user_timezone).strftime("%d-%m-%Y %H:%M:%S"),
         'created_at': member.created_at.astimezone(user_timezone).strftime("%d-%m-%Y %H:%M:%S")
@@ -54,26 +57,25 @@ async def on_member_join(member):
             data = {}
 
     # Добавляем информацию о новом пользователе в словарь
-    data[str(member.id)] = user_info
+    data[str(member.name)] = user_info
 
     # Записываем обновленные данные в JSON файл
     with open('user_info.json', 'w') as file:
         json.dump(data, file, indent=4)
 
+    @bot.event
+    async def on_member_update(before, after):
+        if not os.path.isfile('user_info.json'):
+            return
 
-@bot.event
-async def on_member_update(before, after):
-    if not os.path.isfile('user_info.json'):
-        return
+        with open('user_info.json', 'r') as file:
+            data = json.load(file)
 
-    with open('user_info.json', 'r') as file:
-        data = json.load(file)
+        if str(after.id) in data:
+            data[str(after.id)]['display_name'] = after.display_name
 
-    if str(after.id) in data:
-        data[str(after.id)]['username'] = after.display_name
-
-        with open('user_info.json', 'w') as file:
-            json.dump(data, file, indent=4)
+            with open('user_info.json', 'w') as file:
+                json.dump(data, file, indent=4)
 
 
 @bot.event
@@ -87,6 +89,9 @@ async def on_member_remove(member):
     # Удаляем информацию о вышедшем пользователе из словаря
     if str(member.id) in data:
         del data[str(member.id)]
+
+    if str(member.name) in data:
+        del data[str(member.name)]
 
     with open('user_info.json', 'w') as file:
         json.dump(data, file, indent=4)
@@ -162,4 +167,85 @@ async def pepe(ctx):
     await ctx.send(" https://i.imgur.com/Hab3RJO.jpg ")
 
 
+@bot.command()
+async def add_user(ctx, nickname: str):
+    # Проверяем, существует ли пользователь с указанным никнеймом на сервере
+    member = discord.utils.find(lambda m: m.name == nickname or m.display_name == nickname, ctx.guild.members)
+    if not member:
+        await ctx.send(f'Пользователь с никнеймом {nickname} не найден на сервере.')
+        return
+    # Создаем словарь с информацией о новом пользователе
+    user_info = {
+        'username': member.name,
+        'display_name': member.display_name,
+        'id': member.id,
+        'joined_at': member.joined_at.astimezone(user_timezone).strftime("%d-%m-%Y %H:%M:%S"),
+        'created_at': member.created_at.astimezone(user_timezone).strftime("%d-%m-%Y %H:%M:%S")
+    }
+
+    # Открываем JSON файл для загрузки информации
+    with open('user_info.json', 'r', encoding='utf-8') as file:
+        data = json.load(file)
+
+    # Проверяем, нет ли уже информации о пользователе в словаре
+    if nickname in data:
+        await ctx.send(f'Информация о пользователе {nickname} уже существует.')
+        return
+    # if member.display_name in user_info['display_name']:
+    #     await ctx.send(f'Информация о пользователе {nickname} уже существует.')
+    #     return
+
+    # Добавляем информацию о новом пользователе в словарь
+    data[nickname] = user_info
+
+    # Записываем обновленные данные в JSON файл
+    with open('user_info.json', 'w', encoding='utf-8') as file:
+        json.dump(data, file, indent=4, ensure_ascii=False)
+
+    await ctx.send(f'Информация о пользователе {nickname} успешно добавлена в JSON файл.')
+
+
+@bot.command()
+async def play(ctx, url: str):
+    # Проверяем, находится ли бот в голосовом канале
+    if ctx.voice_client is None:
+        # Проверяем, есть ли пользователь в голосовом канале
+        if ctx.author.voice:
+            # Подключаемся к голосовому каналу пользователя
+            channel = ctx.author.voice.channel
+            await channel.connect()
+        else:
+            await ctx.send('Вы должны находиться в голосовом канале, чтобы я мог проигрывать музыку.')
+            return
+
+    # Создаем объект YouTubeDL для загрузки аудио из видео YouTube
+    ydl_opts = {'format': 'worstaudio/best',
+                              'noplaylist': 'True', 'simulate': 'True', 'preferredquality': '192',
+                              'preferredcodec': 'mp3', 'key': 'FFmpegExtractAudio'}
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        url2 = info['formats'][0]['url']
+
+    # Получаем голосовой канал бота
+    voice_channel = ctx.voice_client
+
+    # Проигрываем аудио в голосовом канале
+    voice_channel.stop()
+    voice_channel.play(discord.FFmpegPC>MAudio(url2), after=lambda e: print('Player error: %s' % e) if e else None)
+    await ctx.send(f'Проигрывается музыка: {url}')
+
+
+@bot.command()
+async def leave(ctx):
+    # Проверяем, находится ли бот в голосовом канале
+    if ctx.voice_client is not None:
+        # Отключаем бота от голосового канала
+        await ctx.voice_client.disconnect()
+        await ctx.send('Бот покинул голосовой канал.')
+    else:
+        await ctx.send('Бот не находится в голосовом канале.')
+
+
 bot.run(TOKEN)
+
+# Документируйте ваш код, включая описание команд, формат записи данных в JSON файл и примеры работы бота, в виде файла README.md
