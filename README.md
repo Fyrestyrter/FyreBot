@@ -22,8 +22,4 @@
         "created_at": "13-09-2016 19:05:14"
     }
 ```
-## Example
-### >meme
-Input: >meme
-Output: 
 
