@@ -1,9 +1,13 @@
 import json
 import random
+
 import discord
 import os
-import youtube_dl
 from discord.ext import commands
+from discord.utils import get
+from discord import FFmpegPCMAudio
+from discord import TextChannel
+import yt_dlp as youtube_dl
 from dotenv import load_dotenv
 from dateutil import tz
 
@@ -206,44 +210,67 @@ async def add_user(ctx, nickname: str):
 
 
 @bot.command()
-async def play(ctx, url: str):
-    # Проверяем, находится ли бот в голосовом канале
-    if ctx.voice_client is None:
-        # Проверяем, есть ли пользователь в голосовом канале
-        if ctx.author.voice:
-            # Подключаемся к голосовому каналу пользователя
-            channel = ctx.author.voice.channel
-            await channel.connect()
-        else:
-            await ctx.send('Вы должны находиться в голосовом канале, чтобы я мог проигрывать музыку.')
-            return
-
-    # Создаем объект YouTubeDL для загрузки аудио из видео YouTube
-    ydl_opts = {'format': 'worstaudio/best',
-                              'noplaylist': 'True', 'simulate': 'True', 'preferredquality': '192',
-                              'preferredcodec': 'mp3', 'key': 'FFmpegExtractAudio'}
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-        url2 = info['formats'][0]['url']
-
-    # Получаем голосовой канал бота
-    voice_channel = ctx.voice_client
-
-    # Проигрываем аудио в голосовом канале
-    voice_channel.stop()
-    voice_channel.play(discord.FFmpegPC>MAudio(url2), after=lambda e: print('Player error: %s' % e) if e else None)
-    await ctx.send(f'Проигрывается музыка: {url}')
-
-
-@bot.command()
-async def leave(ctx):
-    # Проверяем, находится ли бот в голосовом канале
-    if ctx.voice_client is not None:
-        # Отключаем бота от голосового канала
-        await ctx.voice_client.disconnect()
-        await ctx.send('Бот покинул голосовой канал.')
+async def join(ctx):
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_connected():
+        await voice.move_to(channel)
     else:
-        await ctx.send('Бот не находится в голосовом канале.')
+        voice = await channel.connect()
+@bot.command()
+async def play(ctx, url):
+    YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'extractor' : 'youtube'}
+    FFMPEG_OPTIONS = {
+        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if not voice.is_playing():
+        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+            try:
+                info = ydl.extract_info(url, download=False)
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                return
+        URL = info['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
+        voice.is_playing()
+        await ctx.send('Музыка начала играть')
+
+# check if the bot is already playing
+    else:
+        await ctx.send("Музыка уже играет")
+        return
+
+
+# command to resume voice if it is paused
+@bot.command()
+async def resume(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if not voice.is_playing():
+        voice.resume()
+        await ctx.send('Музыка возобновлена')
+
+
+# command to pause voice if it is playing
+@bot.command()
+async def pause(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if voice.is_playing():
+        voice.pause()
+        await ctx.send('Пауза')
+
+
+# command to stop voice
+@bot.command()
+async def stop(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if voice.is_playing():
+        voice.stop()
+        await ctx.send('Stopping...')
+
 
 
 bot.run(TOKEN)
