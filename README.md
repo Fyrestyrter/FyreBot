@@ -23,3 +23,12 @@
     }
 ```
 
+## Music from YT
+В новой версии бота поддерживается воиспроизведение видео с YouTube
+Для управления можно использовать следующие команды:
+- `>join` - join to your channel
+- `>play [URL form YouTube]` - start play music
+- `>pause`and `>resume` - pause and resume music
+- `>stop` - stop play music
+
+P.S. before use `>play` use `>join`
