@@ -6,7 +6,6 @@ import os
 from discord.ext import commands
 from discord.utils import get
 from discord import FFmpegPCMAudio
-from discord import TextChannel
 import yt_dlp as youtube_dl
 from dotenv import load_dotenv
 from dateutil import tz
@@ -35,7 +34,7 @@ user_timezone = tz.tzlocal()
 
 @bot.event
 async def on_ready():
-    print('I am Ready!')
+    print('Ready!')
 
 
 @bot.event
@@ -219,10 +218,17 @@ async def join(ctx):
         voice = await channel.connect()
 @bot.command()
 async def play(ctx, url):
+    if "youtube.com" not in url:
+        await ctx.send("Неверный формат ссылки")
+        return
     YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'extractor' : 'youtube'}
     FFMPEG_OPTIONS = {
         'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
     voice = get(bot.voice_clients, guild=ctx.guild)
+    # join the voice channel if not already connected
+    if not voice:
+        await join(ctx)
+        voice = get(bot.voice_clients, guild=ctx.guild)
 
     if not voice.is_playing():
         with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -269,10 +275,8 @@ async def stop(ctx):
 
     if voice.is_playing():
         voice.stop()
-        await ctx.send('Stopping...')
+        await ctx.send('Музыка остановлена')
 
 
 
 bot.run(TOKEN)
-
-# Документируйте ваш код, включая описание команд, формат записи данных в JSON файл и примеры работы бота, в виде файла README.md
