@@ -1,14 +1,14 @@
 import json
-import random
-
-import discord
 import os
-from discord.ext import commands
-from discord.utils import get
-from discord import FFmpegPCMAudio
+import random
+import discord
 import yt_dlp as youtube_dl
-from dotenv import load_dotenv
+
 from dateutil import tz
+from discord.ext import commands
+from discord import FFmpegPCMAudio
+from discord.utils import get
+from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -23,6 +23,10 @@ bot = commands.Bot(command_prefix='>', intents=intents)
 hello_words = ["hello", "hi", "привет", "как дела"]
 info_words = ["как сделать", "куда обратиться", "помощь", "помогите", "позвонить", "написать ", "поддержка", "support"]
 bye_words = ["пока", "досвидания", "bye"]
+ulik_words = ["Покажи Юлика", "Юлик", "Юлиан"]
+YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'extractor': 'youtube'}
+FFMPEG_OPTIONS = {'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+queue = []
 
 REACTION_ROLE_MAP = {
     '👎': 'Пахан',  # Замените '👎' на нужную реакцию и 'Роль1' на нужное имя роли
@@ -34,7 +38,7 @@ user_timezone = tz.tzlocal()
 
 @bot.event
 async def on_ready():
-    print('Ready!')
+    print(f'Logged in as {bot.user.name} ({bot.user.id})')
 
 
 @bot.event
@@ -49,15 +53,14 @@ async def on_member_join(member):
     }
 
     if not os.path.isfile('user_info.json'):
-        with open('user_info.json', 'w') as file:
-            json.dump({}, file)
-
+        data = {}
+    else:
     # Открываем JSON файл для записи информации
-    with open('user_info.json', 'r') as file:
-        try:
-            data = json.load(file)
-        except json.JSONDecodeError:
-            data = {}
+        with open('user_info.json', 'r') as file:
+            try:
+                data = json.load(file)
+            except json.JSONDecodeError:
+                data = {}
 
     # Добавляем информацию о новом пользователе в словарь
     data[str(member.name)] = user_info
@@ -66,19 +69,17 @@ async def on_member_join(member):
     with open('user_info.json', 'w') as file:
         json.dump(data, file, indent=4)
 
-    @bot.event
-    async def on_member_update(before, after):
-        if not os.path.isfile('user_info.json'):
-            return
 
-        with open('user_info.json', 'r') as file:
-            data = json.load(file)
-
+@bot.event
+async def on_member_update(before, after):
+    if not os.path.isfile('user_info.json'):
+        return
+    with open('user_info.json', 'r') as file:
+        data = json.load(file)
         if str(after.id) in data:
             data[str(after.id)]['display_name'] = after.display_name
-
-            with open('user_info.json', 'w') as file:
-                json.dump(data, file, indent=4)
+    with open('user_info.json', 'w') as file:
+        json.dump(data, file, indent=4)
 
 
 @bot.event
@@ -194,9 +195,6 @@ async def add_user(ctx, nickname: str):
     if nickname in data:
         await ctx.send(f'Информация о пользователе {nickname} уже существует.')
         return
-    # if member.display_name in user_info['display_name']:
-    #     await ctx.send(f'Информация о пользователе {nickname} уже существует.')
-    #     return
 
     # Добавляем информацию о новом пользователе в словарь
     data[nickname] = user_info
@@ -216,39 +214,62 @@ async def join(ctx):
         await voice.move_to(channel)
     else:
         voice = await channel.connect()
+
+
 @bot.command()
 async def play(ctx, url):
     if "youtube.com" not in url:
         await ctx.send("Неверный формат ссылки")
         return
-    YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True', 'extractor' : 'youtube'}
-    FFMPEG_OPTIONS = {
-        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+
     voice = get(bot.voice_clients, guild=ctx.guild)
     # join the voice channel if not already connected
-    if not voice:
+    if voice is None:
         await join(ctx)
         voice = get(bot.voice_clients, guild=ctx.guild)
 
-    if not voice.is_playing():
-        with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
-            try:
-                info = ydl.extract_info(url, download=False)
-            except Exception as e:
-                print(f"An error occurred: {e}")
-                return
-        URL = info['url']
+    with youtube_dl.YoutubeDL(YDL_OPTIONS) as ydl:
+        try:
+            info = ydl.extract_info(url, download=False)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            return
+
+    URL = info['url']
+
+    if not voice.is_playing() and not queue:
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
-        voice.is_playing()
         await ctx.send('Музыка начала играть')
-
-# check if the bot is already playing
     else:
-        await ctx.send("Музыка уже играет")
-        return
+        queue.append(URL)
+        await ctx.send(f'Трек добавлен в очередь. Позиция в очереди: {len(queue)}')
 
 
-# command to resume voice if it is paused
+@bot.command()
+async def skip(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if voice.is_playing():
+        voice.stop()
+        await play_next(ctx)
+        await ctx.send('Переключено к следующему треку в очереди')
+
+
+@bot.command()
+async def play_next(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+
+    if queue:
+        # Получаем следующий трек из очереди
+        next_url = queue.pop(0)
+        voice.play(FFmpegPCMAudio(next_url, **FFMPEG_OPTIONS))
+        await ctx.send('Музыка начала играть (следующий трек в очереди)')
+    else:
+        # Если очередь пуста, просто отключаем бота от голосового канала
+        voice.stop()
+        await ctx.send('Очередь пуста. Отключаюсь от голосового канала.')
+
+
 @bot.command()
 async def resume(ctx):
     voice = get(bot.voice_clients, guild=ctx.guild)
@@ -276,7 +297,6 @@ async def stop(ctx):
     if voice.is_playing():
         voice.stop()
         await ctx.send('Музыка остановлена')
-
 
 
 bot.run(TOKEN)
